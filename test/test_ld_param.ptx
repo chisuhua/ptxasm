@@ -1,0 +1,27 @@
+//
+// Simplified Vector Add Kernel for ptxasm test
+//
+.version 6.3
+.target sm_50
+.address_size 64
+
+.visible .entry _Z9vectorAddPfS_S_i(.param .u64 _Z9vectorAddPfS_S_i_param_0, .param .u64 _Z9vectorAddPfS_S_i_param_1, .param .u64 _Z9vectorAddPfS_S_i_param_2, .param .u32 _Z9vectorAddPfS_S_i_param_3) {
+    .reg .u64   %rd<4>;
+    .reg .u32   %r<2>;
+    .reg .f32   %f<4>;
+
+    ld.param.u64    %rd1, [_Z9vectorAddPfS_S_i_param_0]; 
+    ld.param.u64    %rd2, [_Z9vectorAddPfS_S_i_param_1]; 
+    ld.param.u64    %rd3, [_Z9vectorAddPfS_S_i_param_2]; 
+    ld.param.u32    %r1, [_Z9vectorAddPfS_S_i_param_3]; 
+
+    ld.global.f32   %f1, [%rd1];
+    ld.global.f32   %f2, [%rd2];
+
+    add.f32         %f3, %f1, %f2;
+
+    st.global.f32   [%rd3], %f3;
+
+    BB0_3:
+    ret;
+}
