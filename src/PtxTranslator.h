@@ -115,6 +115,8 @@ private:
     antlrcpp::Any visitRsqrtStatement(ptxParser::RsqrtStatementContext *context) override;
     // Add more as needed...
 
+    antlrcpp::Any visitLabelStatement(ptxParser::LabelStatementContext *context) override;
+
     // --- Output Generation ---
     void emitKernelHeader();
     void emitKernelFooter();

@@ -109,7 +109,6 @@ statement : compoundStatement
           | sharedStatement
           | localStatement
           | dollorStatement
-          | atStatement
           | pragmaStatement
           | retStatement
           | barStatement
@@ -155,11 +154,11 @@ sharedStatement : SHARED ALIGN DIGITS qualifier ID (LeftBracket DIGITS RightBrac
 localStatement : LOCAL ALIGN DIGITS qualifier ID (LeftBracket DIGITS RightBracket)? SEMI ;
 dollorStatement : DOLLOR ID COLON ;
 labelStatement : ID COLON ;
-atStatement : AT operand BRA (DOLLOR? ID) SEMI ;
+// atStatement : AT operand BRA (DOLLOR? ID) SEMI ;
 pragmaStatement : PRAGMA STRING SEMI ;
 retStatement : RET SEMI ;
 barStatement : BAR qualifier* DIGITS SEMI ;
-braStatement : BRA qualifier* (DOLLOR? ID) SEMI ;
+braStatement : (AT predicate)? BRA qualifier* (DOLLOR? ID) SEMI ;
 rcpStatement : RCP qualifier* operandTwo SEMI ;
 ldStatement : LD qualifier* operandTwo SEMI ;
 movStatement : MOV qualifier operandTwo SEMI ;
@@ -200,6 +199,8 @@ rsqrtStatement : RSQRT qualifier* operandTwo SEMI ;
 operandTwo : operand COMMA operand ;
 operandThree : operand COMMA operand COMMA operand;
 operandFour : operand COMMA operand COMMA operand COMMA operand;
+
+predicate: NOT? operand;
 
 operand : imm
         | var

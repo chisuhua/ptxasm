@@ -135,7 +135,8 @@ std::string PtxTranslator::mapPtxOperandToCoasm(const std::string& ptxOperandTex
 
     // 4. Default: return the operand as is (for immediates, unmapped regs, labels)
     return ptxOperandText;
-}   
+}
+
 void PtxTranslator::recordSpecialRegisterUsage(const std::string& specialRegName) {
     if (!specialRegName.empty() && specialRegName[0] == '%' && specialRegName.find('.') != std::string::npos) {
         usedSpecialRegs.insert(specialRegName);
@@ -311,6 +312,19 @@ antlrcpp::Any PtxTranslator::visitStatement(ptxParser::StatementContext *context
     return visitChildren(context); // Dispatches to specific statement visitors
 }
 
+antlrcpp::Any PtxTranslator::visitLabelStatement(ptxParser::LabelStatementContext *context) {
+    // labelStatement : ID COLON ;
+    if (context->ID()) {
+         std::string labelName = context->ID()->getText(); // e.g., "BB6_1"
+         // std::cout << "Visiting label: " << labelName << std::endl; // Debug
+
+         // --- 关键修改：将标签名写入输出文件 ---
+         // 在 COASM 中，标签通常是独立的一行，以冒号结尾
+         outputFile << labelName << ":\n";
+    }
+    return nullptr;
+}
+
 antlrcpp::Any PtxTranslator::visitCompoundStatement(ptxParser::CompoundStatementContext *context) {
     if (context->statements()) {
         return visitStatements(context->statements());
@@ -376,12 +390,9 @@ antlrcpp::Any PtxTranslator::visitLdStatement(ptxParser::LdStatementContext *con
     // --- 检查是否是 ld.param ---
     for (auto* qual : context->qualifier()) {
         // --- 确保 qual 和其起始 token 存在 ---
-        if (qual && qual->getStart()) {
-            // --- 检查 qualifier token 的类型是否是 PARAM (来自 ptxLexer) ---
-            if (qual->getStart()->getType() == ptxLexer::PARAM) {
-                isParamLoad = true;
-                break;
-            }
+        if (qual && qual->getStart() && qual->getStart()->getType() == ptxLexer::PARAM) { // 使用 lexer token type
+            isParamLoad = true;
+            break;
         }
     }
 
@@ -396,6 +407,10 @@ antlrcpp::Any PtxTranslator::visitLdStatement(ptxParser::LdStatementContext *con
             std::string ptxParamName; // e.g., "_Z9vectorAddPfS_S_i_param_0"
 
             // 提取参数名称 (symbolic name) 从 fetchAddress 操作数
+            if (srcOpCtx && srcOpCtx->fetchAddress() && srcOpCtx->fetchAddress()->ID()) {
+                 ptxParamName = srcOpCtx->fetchAddress()->ID()->getText(); // _Z...
+            }
+/*
             if (srcOpCtx && srcOpCtx->fetchAddress()) {
                 ptxParser::FetchAddressContext* faCtx = srcOpCtx->fetchAddress();
                 // 根据语法: fetchAddress : LeftBracket (ID|regi) PLUS? DIGITS? RightBracket ;
@@ -414,7 +429,7 @@ antlrcpp::Any PtxTranslator::visitLdStatement(ptxParser::LdStatementContext *con
                 // 对于简单的参数加载 [param_name]，它们是不存在的。
                 // 如果存在，提取逻辑会更复杂，需要处理偏移量。
             }
-
+*/
             if (!ptxDestReg.empty() && !ptxParamName.empty()) {
                 // --- NEW LOGIC FOR ld.param ---
                 // 1. 为目的地分配一个新的 COASM 寄存器，基于 PTX 目的地寄存器的类型
@@ -451,38 +466,74 @@ antlrcpp::Any PtxTranslator::visitLdStatement(ptxParser::LdStatementContext *con
              auto* destOpCtx = context->operandTwo()->operand(0); // %f1
              auto* srcOpCtx = context->operandTwo()->operand(1); // [%rd1 + %r1 * 4]
 
-             std::string ptxDestReg = getOperandText(destOpCtx); // %f1
-             std::string ptxSrcAddr = getOperandText(srcOpCtx); // [%rd1 + %r1 * 4]
-
              // 1. 为目标寄存器分配 COASM 寄存器
-             std::string coasmDestReg = mapPtxOperandToCoasm(ptxDestReg); // %f1 -> %v8
+             std::string coasmDestReg = mapPtxOperandToCoasm(getOperandText(destOpCtx)); // %f1 -> %v7
 
-             // 2. 翻译源地址操作数
-             // 这需要更复杂的逻辑来处理 [base + index * scale + offset]
-             // 一个简化的方法是直接使用 mapPtxOperandToCoasm 处理整个地址字符串
-             // 但这可能不够精确。更好的方法是解析 srcOpCtx->fetchAddress() 的结构。
-             // 为了快速修复，我们先尝试直接映射地址字符串。
-             // 注意：这可能无法完美处理复杂的地址表达式。
-             std::string coasmSrcAddr = mapPtxOperandToCoasm(ptxSrcAddr); // [%rd1 + %r1 * 4] -> [%vd0 + %v6 * 4]
+             // 2. 翻译源地址操作数 (关键点：这里必须调用 mapPtxOperandToCoasm)
+             std::string coasmSrcAddr = "["; // Start building COASM address
+             if (srcOpCtx && srcOpCtx->fetchAddress()) {
+                 ptxParser::FetchAddressContext* faCtx = srcOpCtx->fetchAddress();
+                 // --- 根据您的 ptxParser.g4: fetchAddress : LeftBracket (ID|regi) PLUS? DIGITS? RightBracket ; ---
+                 // 或者更通用的 (如果已修改): fetchAddress : LeftBracket addressExpr RightBracket ;
+                 // addressExpr: (regi | var) (PLUS (regi | DIGITS) (MULT DIGITS)? )? ;
 
-             // 3. 确定类型后缀
+                 // --- 处理基址 (第一个操作数) ---
+                 if (faCtx->ID()) {
+                     coasmSrcAddr += faCtx->ID()->getText(); // Append ID as-is (e.g., a label)
+                 } else if (faCtx->regi()) {
+                     // --- 关键修改：对基址寄存器调用 mapPtxOperandToCoasm ---
+                     std::string ptxBaseReg = faCtx->regi()->getText(); // e.g., "%rd1"
+                     std::string coasmBaseReg = mapPtxOperandToCoasm(ptxBaseReg); // e.g., "%vd0"
+                     coasmSrcAddr += coasmBaseReg; // Append mapped register
+                 } /*else if (faCtx->var()) { // 如果 grammar 允许 var 作为基址
+                      std::string ptxBaseVar = faCtx->var()->getText(); // e.g., "some_symbol"
+                      std::string coasmBaseVar = mapPtxOperandToCoasm(ptxBaseVar); // Map if needed
+                      coasmSrcAddr += coasmBaseVar; // Append mapped var/symbol
+                 }
+                */
+
+                 // --- 处理偏移量 (PLUS 部分) ---
+                 if (faCtx->PLUS()) {
+                     coasmSrcAddr += " + ";
+                     // 处理偏移量 (regi 或 DIGITS)
+                     // 注意：根据原始 grammar，这里可能只有一个偏移量 (DIGITS)
+                     // 如果修改了 grammar 支持 regi 偏移，则需要调整
+                     if (faCtx->DIGITS()) {
+                         coasmSrcAddr += faCtx->DIGITS()->getText(); // Append immediate offset
+                     } /*else if (faCtx->regi(1)) { // 如果 grammar 支持 regi 偏移 (第二个 regi)
+                         // --- 关键修改：对偏移寄存器调用 mapPtxOperandToCoasm ---
+                         std::string ptxOffsetReg = faCtx->regi(1)->getText(); // e.g., "%r1"
+                         std::string coasmOffsetReg = mapPtxOperandToCoasm(ptxOffsetReg); // e.g., "%v6"
+                         coasmSrcAddr += coasmOffsetReg;
+                     }
+                    */
+                     // --- 处理比例因子 (MULT 部分) - 如果 grammar 支持 ---
+                     // 注意：原始 grammar 没有 MULT/DIGITS(1)，需要确认是否已修改
+                     // if (faCtx->MULT() && faCtx->DIGITS(1)) { // 假设有第二个 DIGITS 作为比例因子
+                     //     coasmSrcAddr += " * ";
+                     //     coasmSrcAddr += faCtx->DIGITS(1)->getText();
+                     // }
+                 }
+             }
+             coasmSrcAddr += "]"; // Finish building the COASM address string
+
+             // 3. 确定类型后缀和空间后缀
              std::string typeSuffix = translateQualifiersToSuffix(context->qualifier());
-
-             // 4. 确定内存空间后缀 (ld.global, ld.shared, ld.local, ld.const)
-             std::string spaceSuffix = "global"; // 默认
+             std::string spaceSuffix = "global"; // Default
              for (auto* qual : context->qualifier()) {
                  if (qual && qual->getStart()) {
                      std::string qualText = qual->getStart()->getText();
                      std::transform(qualText.begin(), qualText.end(), qualText.begin(), ::tolower);
-                     if (qualText == ".global") { spaceSuffix = "global"; break; }
-                     else if (qualText == ".shared") { spaceSuffix = "shared"; break; }
-                     else if (qualText == ".local") { spaceSuffix = "local"; break; }
-                     else if (qualText == ".const") { spaceSuffix = "const"; break; }
+                     if (!qualText.empty() && qualText[0] == '.') qualText = qualText.substr(1);
+                     if (qualText == "global") { spaceSuffix = "global"; break; }
+                     else if (qualText == "shared") { spaceSuffix = "shared"; break; }
+                     else if (qualText == "local") { spaceSuffix = "local"; break; }
+                     else if (qualText == "const") { spaceSuffix = "const"; break; }
                      // ... 其他空间 ...
                  }
              }
 
-             // 5. 生成 COASM 指令
+             // 4. 生成 COASM 指令
              // 假设 coasm 格式是 ld.<space>.<type> <dst>, <addr>
              outputFile << "\tld." << spaceSuffix << "." << typeSuffix << "\t" << coasmDestReg << ", " << coasmSrcAddr << "\n";
         }
@@ -498,37 +549,70 @@ antlrcpp::Any PtxTranslator::visitLdStatement(ptxParser::LdStatementContext *con
 antlrcpp::Any PtxTranslator::visitStStatement(ptxParser::StStatementContext *context) {
     // st.global.f32 [%rd3 + %r1 * 4], %f3;
     if (context->operandTwo() && context->operandTwo()->operand().size() >= 2) {
-        auto* addrOpCtx = context->operandTwo()->operand(0); // [%rd3 + %r1 * 4]
-        auto* srcOpCtx = context->operandTwo()->operand(1); // %f3
 
-        std::string ptxAddrOperand = getOperandText(addrOpCtx); // [%rd3 + %r1 * 4]
-        std::string ptxSrcOperand = getOperandText(srcOpCtx); // %f3
+        // --- 修正点 1: 解析并翻译地址操作数 ---
+        std::string coasmAddrOperand = "["; // Start building COASM address
+        auto* addrOpCtx = context->operandTwo()->operand(0);
+        if (addrOpCtx && addrOpCtx->fetchAddress()) {
+            ptxParser::FetchAddressContext* faCtx = addrOpCtx->fetchAddress();
+            // --- 处理基址 ---
+            if (faCtx->regi()) {
+                // --- 关键修改：对基址寄存器调用 mapPtxOperandToCoasm ---
+                std::string ptxBaseReg = faCtx->regi()->getText(); // e.g., "%rd3"
+                std::string coasmBaseReg = mapPtxOperandToCoasm(ptxBaseReg); // e.g., "%vd4"
+                coasmAddrOperand += coasmBaseReg; // Append mapped register
+            } else if (faCtx->ID()) {
+                coasmAddrOperand += faCtx->ID()->getText();
+            } else /*if (faCtx->var()) {
+                 std::string ptxBaseVar = faCtx->var()->getText();
+                 std::string coasmBaseVar = mapPtxOperandToCoasm(ptxBaseVar);
+                 coasmAddrOperand += coasmBaseVar;
+            }
+            */
+            // --- 处理偏移量 ---
+            if (faCtx->PLUS()) {
+                coasmAddrOperand += " + ";
+                if (faCtx->DIGITS()) {
+                    coasmAddrOperand += faCtx->DIGITS()->getText();
+                } /*else if (faCtx->regi(1)) { // 如果 grammar 支持 regi 偏移
+                    // --- 关键修改：对偏移寄存器调用 mapPtxOperandToCoasm ---
+                    std::string ptxOffsetReg = faCtx->regi(1)->getText(); // e.g., "%r1"
+                    std::string coasmOffsetReg = mapPtxOperandToCoasm(ptxOffsetReg); // e.g., "%v6"
+                    coasmAddrOperand += coasmOffsetReg;
+                }
+                */
+                // --- 处理比例因子 ---
+                // if (faCtx->MULT() && faCtx->DIGITS(1)) { // 如果 grammar 支持
+                //     coasmAddrOperand += " * ";
+                //     coasmAddrOperand += faCtx->DIGITS(1)->getText();
+                // }
+            }
+        }
+        coasmAddrOperand += "]"; // Finish building the COASM address string
+        // --- 修正点 2: 翻译源操作数 ---
+        std::string coasmSrcOperand = mapPtxOperandToCoasm(getOperandText(context->operandTwo()->operand(1))); // %f3 -> %v9
 
-        // 1. 翻译地址操作数 (这应该应用寄存器映射，如 %rd3 -> %vd4)
-        std::string coasmAddrOperand = mapPtxOperandToCoasm(ptxAddrOperand); // [%rd3 + ...] -> [%vd4 + ...]
-
-        // 2. 翻译源操作数
-        std::string coasmSrcOperand = mapPtxOperandToCoasm(ptxSrcOperand); // %f3 -> %v7
-
-        // 3. 确定类型后缀和空间后缀 (与 visitLdStatement 类似)
+        // --- 修正点 3: 确定类型后缀和空间后缀 ---
         std::string typeSuffix = translateQualifiersToSuffix(context->qualifier());
-        std::string spaceSuffix = "global"; // 默认
+        std::string spaceSuffix = "global"; // Default
         for (auto* qual : context->qualifier()) {
              if (qual && qual->getStart()) {
                  std::string qualText = qual->getStart()->getText();
                  std::transform(qualText.begin(), qualText.end(), qualText.begin(), ::tolower);
-                 if (qualText == ".global") { spaceSuffix = "global"; break; }
-                 else if (qualText == ".shared") { spaceSuffix = "shared"; break; }
-                 else if (qualText == ".local") { spaceSuffix = "local"; break; }
-                 else if (qualText == ".const") { spaceSuffix = "const"; break; }
+                 if (!qualText.empty() && qualText[0] == '.') qualText = qualText.substr(1);
+                 if (qualText == "global") { spaceSuffix = "global"; break; }
+                 else if (qualText == "shared") { spaceSuffix = "shared"; break; }
+                 else if (qualText == "local") { spaceSuffix = "local"; break; }
+                 else if (qualText == "const") { spaceSuffix = "const"; break; }
                  // ... 其他空间 ...
              }
         }
 
-        // 4. 生成 COASM 指令
+        // --- 修正点 4: 生成 COASM 指令 ---
         // 假设 coasm 格式是 st.<space>.<type> <addr>, <src>
         outputFile << "\tst." << spaceSuffix << "." << typeSuffix << "\t" << coasmAddrOperand << ", " << coasmSrcOperand << "\n";
     }
+
     return nullptr;
 }
 
@@ -568,16 +652,44 @@ antlrcpp::Any PtxTranslator::visitSetpStatement(ptxParser::SetpStatementContext 
         std::string predDst = mapPtxOperandToCoasm(getOperandText(context->operandThree()->operand(0)));
         std::string src1 = mapPtxOperandToCoasm(getOperandText(context->operandThree()->operand(1)));
         std::string src2 = mapPtxOperandToCoasm(getOperandText(context->operandThree()->operand(2)));
-        outputFile << "\tsetp." << cmpOp << ".u32\t" << predDst << ", " << src1 << ", " << src2 << "\n";
+        std::string typeSuffix = translateQualifiersToSuffix(context->qualifier()); // u32
+        // Output: cmp_tcc.<cmp_op>.<type> <pred_dst>, <src1>, <src2>
+        outputFile << "\tcmp_tcc." << cmpOp << "." << typeSuffix << "\t" << predDst << ", " << src1 << ", " << src2 << "\n";
     }
     return nullptr;
 }
+
 antlrcpp::Any PtxTranslator::visitBraStatement(ptxParser::BraStatementContext *context) {
-    // bra BB0_3; or @%p1 bra BB0_3;
+    // bra BB0_3; or @%p1 bra BB0_3; or bra.uni BB0_1;
     if (context->ID()) {
-         std::string targetLabel = context->ID()->getText();
-         // TODO: Handle predicate from context if present (e.g., check qualifiers for pred)
-         outputFile << "\ts_branch " << targetLabel << "\n"; // Placeholder coasm branch
+         std::string targetLabel = context->ID()->getText(); // BB0_3, BB0_1
+
+         // --- 修改点：检查是否有谓词修饰符 ---
+         bool hasPredicate = (context->AT() != nullptr);
+         bool isPredNegated = false; // 如果需要支持 @!%p1
+         std::string predicateReg;
+
+         if (hasPredicate && context->predicate()) {
+             // 获取谓词寄存器文本 (例如 "%p1", "%p2")
+             predicateReg = getOperandText(context->predicate()->operand()); // %p1 -> %p0
+             // 映射谓词寄存器到 COASM 寄存器 (例如 %p1 -> %p0)
+             predicateReg = mapPtxOperandToCoasm(predicateReg);
+             isPredNegated = (context->predicate()->NOT() != nullptr);
+             // 如果需要区分 @!%p1 (否定谓词)，需要检查 context->NOT() (如果 grammar 中定义了)
+         }
+
+         if (hasPredicate && !predicateReg.empty()) {
+             // 生成条件分支指令
+             // 需要根据 isPredNegated 选择正确的 COASM 分支指令
+             // 假设 COASM 有 s_branch_tccz (Test Condition Code Zero) 和 s_branch_tccnz (Not Zero)
+             // @%p1 bra BB0_3;  ->  如果 %p1 != 0 则跳转 -> s_branch_tccnz %p0, BB0_3
+             // @!%p1 bra BB0_3; ->  如果 %p1 == 0 则跳转 -> s_branch_tccz %p0, BB0_3
+             std::string branchInstr = isPredNegated ? "s_branch_tccz" : "s_branch_tccnz";
+             outputFile << "\t" << branchInstr << "\t" << predicateReg << ", " << targetLabel << "\n";
+         } else {
+             // --- 修改点：生成无条件分支指令 ---
+             outputFile << "\ts_branch " << targetLabel << "\n"; // Placeholder coasm branch
+         }
     }
     return nullptr;
 }
@@ -657,7 +769,9 @@ antlrcpp::Any PtxTranslator::visit##PTX_CONTEXT_TYPE(ptxParser::PTX_CONTEXT_TYPE
         std::string typeSuffix = translateQualifiersToSuffix(context->qualifier()); \
         std::string dst = mapPtxOperandToCoasm(getOperandText(context->operandTwo()->operand(0))); \
         std::string src = mapPtxOperandToCoasm(getOperandText(context->operandTwo()->operand(1))); \
-        outputFile << "\t" << OP_NAME_UPPER << "." << typeSuffix << "\t" << dst << ", " << src << "\n"; \
+        outputFile << "\t" << OP_NAME_UPPER; \
+        if (typeSuffix == "pred") {outputFile << "_tcc."; } \
+        outputFile << "." << typeSuffix << "\t" << dst << ", " << src << "\n"; \
     } \
     return nullptr; \
 }
@@ -672,7 +786,9 @@ antlrcpp::Any PtxTranslator::visit##PTX_CONTEXT_TYPE(ptxParser::PTX_CONTEXT_TYPE
         std::string dst = mapPtxOperandToCoasm(getOperandText(context->operandThree()->operand(0))); \
         std::string src1 = mapPtxOperandToCoasm(getOperandText(context->operandThree()->operand(1))); \
         std::string src2 = mapPtxOperandToCoasm(getOperandText(context->operandThree()->operand(2))); \
-        outputFile << "\t" << OP_NAME_UPPER << "." << typeSuffix << "\t" << dst << ", " << src1 << ", " << src2 << "\n"; \
+        outputFile << "\t" << OP_NAME_UPPER; \
+        if (typeSuffix == "pred") {outputFile << "_tcc."; } \
+        outputFile << "." << typeSuffix << "\t" << dst << ", " << src1 << ", " << src2 << "\n"; \
     } \
     return nullptr; \
 }
@@ -686,7 +802,9 @@ antlrcpp::Any PtxTranslator::visit##PTX_CONTEXT_TYPE(ptxParser::PTX_CONTEXT_TYPE
         std::string src1 = mapPtxOperandToCoasm(getOperandText(context->operandFour()->operand(1))); \
         std::string src2 = mapPtxOperandToCoasm(getOperandText(context->operandFour()->operand(2))); \
         std::string src3 = mapPtxOperandToCoasm(getOperandText(context->operandFour()->operand(3))); \
-        outputFile << "\t" << OP_NAME_UPPER << "." << typeSuffix << "\t" << dst << ", " << src1 << ", " << src2 << ", " << src3 << "\n"; \
+        outputFile << "\t" << OP_NAME_UPPER; \ 
+        if (typeSuffix == "pred") {outputFile << "_tcc."; } \
+        outputFile << "." << typeSuffix << "\t" << dst << ", " << src1 << ", " << src2 << ", " << src3 << "\n"; \
     } \
     return nullptr; \
 }

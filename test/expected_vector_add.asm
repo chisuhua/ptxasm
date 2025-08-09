@@ -1,71 +1,61 @@
-    .text
-    .global _Z9vectorAddPfS_S_i
-    .type _Z9vectorAddPfS_S_i,@function
-_Z9vectorAddPfS_S_i:
+	.text
+	.global _Z9vectorAddIaaaEvPKT_PKT0_PT1_i
+	.type _Z9vectorAddIaaaEvPKT_PKT0_PT1_i,@function
+_Z9vectorAddIaaaEvPKT_PKT0_PT1_i:
 bb_00:
-    // mov.u32 %r2, %tid.x;
-    mov.u32	%r2, %tid.x
-    // mov.u32 %r3, %ntid.x;
-    mov.u32	%r3, %ntid.x
-    // mov.u32 %r4, %ctaid.x;
-    mov.u32	%r4, %ctaid.x
-    // mul.lo.u32 %r5, %r3, %r4;
-    mul.lo.u32	%r5, %r3, %r4
-    // add.u32 %r6, %r5, %r2;
-    add.u32	%r6, %r5, %r2
-    // setp.ge.u32 %p1, %r6, %r1;
-    setp.ge.u32	%p1, %r6, %r1
-    // @%p1 bra BB0_3;
-    t_cbranch_tccnz	%p1, bb_03
-    // mul.wide.u32 %rd4, %r6, 4;
-    // Assuming decomposition or coasm handles .wide
-    mul.u32	%rd0, %r6, 4
-    mov.u64	%rd4, %rd0
-    // ld.global.f32 %f1, [%rd1 + %rd4];
-    // %rd1 maps to symbolic register %_Z9vectorAddPfS_S_i_param_0
-    ld.f32	%f1, [%_Z9vectorAddPfS_S_i_param_0 + %rd4]
-    // ld.global.f32 %f2, [%rd2 + %rd4];
-    // %rd2 maps to symbolic register %_Z9vectorAddPfS_S_i_param_1
-    ld.f32	%f2, [%_Z9vectorAddPfS_S_i_param_1 + %rd4]
-    // add.f32 %f3, %f1, %f2;
-    add.f32	%f3, %f1, %f2
-    // st.global.f32 [%rd3 + %rd4], %f3;
-    // %rd3 maps to symbolic register %_Z9vectorAddPfS_S_i_param_2
-    st.f32	[%_Z9vectorAddPfS_S_i_param_2 + %rd4], %f3
-    // BB0_3:
-    bb_03:
-    // ret;
-    t_exit
+func_begin6:
+	ld.param.u64	%vd0, [%s0 + _Z9vectorAddIaaaEvPKT_PKT0_PT1_i_param_0]
+	ld.param.u64	%vd2, [%s0 + _Z9vectorAddIaaaEvPKT_PKT0_PT1_i_param_1]
+	ld.param.u64	%vd4, [%s0 + _Z9vectorAddIaaaEvPKT_PKT0_PT1_i_param_2]
+	ld.param.u32	%v6, [%s0 + _Z9vectorAddIaaaEvPKT_PKT0_PT1_i_param_3]
+func_exec_begin6:
+tmp12:
+	mov.u32	%v7, %ntid.x
+	mov.u32	%v8, %ctaid.x
+	mul.s32	%v9, %v7, %v8
+	mov.u32	%v10, %tid.x
+	add.s32	%v11, %v9, %v10
+tmp13:
+	cmp_tcc.lt.s32	%p0, %v11, %v6
+	not_tcc..pred	%p1, %p0
+	s_branch_tccnz	%p1, BB6_2
+	s_branch BB6_1
+BB6_1:
+tmp14:
+	cvt.s64.s32	%vd6, %v11
+	add.s64	%vd8, %vd0, %vd6
+	ld.global.u8	%rs1, [%vd8]
+	cvt.u32.u16	%v12, %rs1
+	cvt.s32.s8	%v13, %v12
+	cvt.s64.s32	%vd10, %v11
+	add.s64	%vd12, %vd2, %vd10
+	ld.global.u8	%rs2, [%vd12]
+	cvt.u32.u16	%v14, %rs2
+	cvt.s32.s8	%v15, %v14
+	add.s32	%v16, %v13, %v15
+	cvt.u16.u32	%rs3, %v16
+	cvt.s64.s32	%vd14, %v11
+	add.s64	%vd16, %vd4, %vd14
+	st.global.u8	[%vd16], %rs3
+tmp15:
+BB6_2:
+	t_exit
+tmp16:
+func_end6:
 -
 opu.kernels:
- - .name: _Z9vectorAddPfS_S_i
+ - .name: _Z9vectorAddIaaaEvPKT_PKT0_PT1_i
    .args:
-     - .address_space: global
-       .name: _Z9vectorAddPfS_S_i_param_0
-       .offset: 0
-       .size: 8
-       .value_kind: global_buffer
-     - .address_space: global
-       .name: _Z9vectorAddPfS_S_i_param_1
-       .offset: 8
-       .size: 8
-       .value_kind: global_buffer
-     - .address_space: global
-       .name: _Z9vectorAddPfS_S_i_param_2
-       .offset: 16
-       .size: 8
-       .value_kind: global_buffer
-     - .address_space: global
-       .name: _Z9vectorAddPfS_S_i_param_3
-       .offset: 24
-       .size: 4
-       .value_kind: global_buffer
+     - .address_space: global .name: _Z9vectorAddIaaaEvPKT_PKT0_PT1_i_param_0 .offset: 0 .size: 8 .value_kind: global_buffer
+     - .address_space: global .name: _Z9vectorAddIaaaEvPKT_PKT0_PT1_i_param_1 .offset: 0 .size: 8 .value_kind: global_buffer
+     - .address_space: global .name: _Z9vectorAddIaaaEvPKT_PKT0_PT1_i_param_2 .offset: 0 .size: 8 .value_kind: global_buffer
+     - .address_space: global .name: _Z9vectorAddIaaaEvPKT_PKT0_PT1_i_param_3 .offset: 0 .size: 8 .value_kind: global_buffer
    .shared_memsize: 0
    .private_memsize: 0
    .cmem_size: 0
    .bar_used: 0
    .local_framesize: 0
-   .kernel_ctrl: 7
+   .kernel_ctrl: 73
    .kernel_mode: 0
 opu.version:
  - 2
