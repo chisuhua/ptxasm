@@ -1,3 +1,4 @@
+// src/PtxTranslator.h
 #ifndef PTX_TRANSLATOR_H
 #define PTX_TRANSLATOR_H
 
@@ -7,7 +8,7 @@
 #include <map>
 #include <vector>
 #include <unordered_map>
-#include <unordered_set> // For tracking special registers
+#include <unordered_set>
 #include <memory>
 #include <cstdint>
 
@@ -15,11 +16,17 @@
 #include "antlr4-runtime.h"
 #include "ptxLexer.h"
 #include "ptxParser.h"
-#include "ptxParserBaseVisitor.h" // Using Visitor pattern
+#include "ptxParserBaseVisitor.h"
 
-// --- COASM Includes (for validation, if needed) ---
-// #include "coasmLexer.h"
-// #include "coasmParser.h"
+// --- Forward declarations for coasm_infra integration ---
+// These are needed if we directly include coasm_infra headers for validation
+#if defined(COASM_INFRA_FOUND) && COASM_INFRA_FOUND
+// Include coasm_infra headers if needed for validation
+// #include "coasmLexer.h" // From coasm_infra generated ANTLR output
+// #include "coasmParser.h" // From coasm_infra generated ANTLR output
+// #include "antlr4-runtime.h"
+#endif
+
 
 class PtxTranslator : public ptxParserBaseVisitor {
 private:
@@ -29,9 +36,17 @@ private:
 
     // --- Translation State ---
     std::string currentKernelName;
+    std::map<std::string, int> ptxRegCounts;
+    std::map<std::string, int> ptxMaxRegNumbers;
+    std::unordered_set<int> usedVRegsByVd; // Track individual %v# regs used by %vd allocations
+    int nextCoasmVReg;
+    int nextCoasmVdReg;
+    std::unordered_map<std::string, std::string> ptxToCoasmRegMap;
     std::unordered_map<std::string, std::string> ptxParamToCoasmReg;
     std::unordered_map<std::string, std::string> ptxSharedToCoasmReg;
-    std::unordered_set<std::string> usedSpecialRegs; // Track for kernel_ctrl
+    std::unordered_set<std::string> usedSpecialRegs;
+
+    bool earlyExitTriggered = false; // Flag for early exit on ret;
 
     struct KernelMetadata {
         std::string name;
@@ -51,6 +66,8 @@ private:
     std::string getOperandText(ptxParser::OperandContext* operandCtx);
     std::string translateQualifierToSuffix(ptxParser::QualifierContext* qualifierCtx);
     std::string translateQualifiersToSuffix(const std::vector<ptxParser::QualifierContext*>& qualifiers);
+    void initializeCoasmRegAllocation();
+    std::string allocateCoasmRegForPtx(const std::string& ptxRegName);
     std::string mapPtxOperandToCoasm(const std::string& ptxOperandText);
     void recordSpecialRegisterUsage(const std::string& specialRegName);
     uint32_t calculateKernelCtrl();
@@ -63,18 +80,24 @@ private:
     antlrcpp::Any visitStatements(ptxParser::StatementsContext *context) override;
     antlrcpp::Any visitStatement(ptxParser::StatementContext *context) override;
     antlrcpp::Any visitCompoundStatement(ptxParser::CompoundStatementContext *context) override;
+    antlrcpp::Any visitRegStatement(ptxParser::RegStatementContext *context) override;
 
-    // --- Instruction Visitors ---
+    // --- Instruction Translation Visitors ---
+    // Instructions handled specially or with unique logic
     antlrcpp::Any visitLdStatement(ptxParser::LdStatementContext *context) override;
     antlrcpp::Any visitStStatement(ptxParser::StStatementContext *context) override;
-    antlrcpp::Any visitAddStatement(ptxParser::AddStatementContext *context) override;
-    antlrcpp::Any visitMulStatement(ptxParser::MulStatementContext *context) override;
-    antlrcpp::Any visitCvtStatement(ptxParser::CvtStatementContext *context) override;
     antlrcpp::Any visitMovStatement(ptxParser::MovStatementContext *context) override;
     antlrcpp::Any visitSetpStatement(ptxParser::SetpStatementContext *context) override;
     antlrcpp::Any visitBraStatement(ptxParser::BraStatementContext *context) override;
-    antlrcpp::Any visitMadStatement(ptxParser::MadStatementContext *context) override;
     antlrcpp::Any visitRetStatement(ptxParser::RetStatementContext *context) override;
+    antlrcpp::Any visitCvtStatement(ptxParser::CvtStatementContext *context) override;
+    antlrcpp::Any visitMadStatement(ptxParser::MadStatementContext *context) override;
+    antlrcpp::Any visitFmaStatement(ptxParser::FmaStatementContext *context) override;
+    antlrcpp::Any visitSelpStatement(ptxParser::SelpStatementContext *context) override;
+
+    // Instructions using operandTwo (dst, src) - Macro-generated
+    antlrcpp::Any visitAddStatement(ptxParser::AddStatementContext *context) override;
+    antlrcpp::Any visitMulStatement(ptxParser::MulStatementContext *context) override;
     antlrcpp::Any visitDivStatement(ptxParser::DivStatementContext *context) override;
     antlrcpp::Any visitSubStatement(ptxParser::SubStatementContext *context) override;
     antlrcpp::Any visitShlStatement(ptxParser::ShlStatementContext *context) override;
@@ -87,8 +110,6 @@ private:
     antlrcpp::Any visitNegStatement(ptxParser::NegStatementContext *context) override;
     antlrcpp::Any visitNotStatement(ptxParser::NotStatementContext *context) override;
     antlrcpp::Any visitAbsStatement(ptxParser::AbsStatementContext *context) override;
-    antlrcpp::Any visitSelpStatement(ptxParser::SelpStatementContext *context) override;
-    antlrcpp::Any visitFmaStatement(ptxParser::FmaStatementContext *context) override;
     antlrcpp::Any visitRcpStatement(ptxParser::RcpStatementContext *context) override;
     antlrcpp::Any visitSqrtStatement(ptxParser::SqrtStatementContext *context) override;
     antlrcpp::Any visitRsqrtStatement(ptxParser::RsqrtStatementContext *context) override;
@@ -98,8 +119,11 @@ private:
     void emitKernelHeader();
     void emitKernelFooter();
 
-    // --- Validation (Optional) ---
-    // bool validateOutput();
+    // --- Validation (Optional, using coasm_infra generated parser) ---
+#if defined(COASM_INFRA_FOUND) && COASM_INFRA_FOUND
+    bool validateOutputWithCoasmInfraParser(const std::string& coasmCode);
+#endif
+
 
 public:
     PtxTranslator(ptxParser::AstContext* tree, std::ofstream& out, const std::string& outFilename);

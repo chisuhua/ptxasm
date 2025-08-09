@@ -6,26 +6,66 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --- 配置 ANTLR ---
 # 设置 ANTLR 可执行文件路径 (需要根据你的安装情况修改)
-set(ANTLR_EXECUTABLE ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/antlr4/antlr-4.13.2-complete.jar)
+set(ANTLR_JAR ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/antlr4/antlr-4.13.2-complete.jar)
 set(ANTLR_RUNTIME_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/antlr4/runtime/src)
 
 # 检查 ANTLR 是否存在
-if(NOT EXISTS ${ANTLR_EXECUTABLE})
-    message(FATAL_ERROR "ANTLR executable not found at ${ANTLR_EXECUTABLE}. Please set the correct path in CMakeLists.txt.")
+if(NOT EXISTS ${ANTLR_JAR})
+    message(FATAL_ERROR "ANTLR executable not found at ${ANTLR_JAR}. Please set the correct path in CMakeLists.txt.")
 endif()
 
 # 设置 Java 命令 (ANTLR 需要 Java)
 find_package(Java REQUIRED)
 include(UseJava)
 
-# --- 定义 ANTLR 生成 PTX 解析器 ---
-set(ANTLR_JAR ${ANTLR_EXECUTABLE})
+# --- 定位 coasm_infra 项目和其生成的文件 ---
+# 1. 设置 coasm_infra 项目根目录路径 (相对于当前 CMakeLists.txt)
+#    你可以通过 CMake 选项、环境变量或硬编码来设置
+option(COASM_INFRA_ROOT "Path to the coasm_infra project root directory" "")
+if(NOT COASM_INFRA_ROOT)
+    # 尝试从环境变量获取
+    set(COASM_INFRA_ROOT $ENV{COASM_INFRA_ROOT})
+endif()
+if(NOT COASM_INFRA_ROOT)
+    # 默认相对路径 (假设 coasm_infra 和 ptxasm 在同一级目录下)
+    set(COASM_INFRA_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../coasm_infra")
+endif()
+
+# 规范化路径并验证
+get_filename_component(COASM_INFRA_ROOT "${COASM_INFRA_ROOT}" ABSOLUTE)
+if(NOT EXISTS "${COASM_INFRA_ROOT}/coasm_isa.md")
+    message(FATAL_ERROR "coasm_infra directory '${COASM_INFRA_ROOT}' not found or invalid. Please set COASM_INFRA_ROOT correctly.")
+endif()
+message(STATUS "Found coasm_infra at: ${COASM_INFRA_ROOT}")
+
+# 2. 定义 coasm_infra 生成文件的路径
+set(COASM_INFRA_GENERATED_DIR "${COASM_INFRA_ROOT}/generated")
+set(COASM_GRAMMAR_FILE "${COASM_INFRA_GENERATED_DIR}/coasm.g4")
+set(COASM_INFRA_ANTLR_GENERATED_DIR "${COASM_INFRA_GENERATED_DIR}/antlr_generated")
+
+# 3. (可选但推荐) 确保 coasm_infra 的生成步骤被执行
+#    创建一个自定义目标来运行 coasm_infra 的生成器脚本
+#    这假设 coasm_infra 的 DSL 文件是固定的，或者你有一个机制来触发重新生成
+#    如果 coasm_infra 本身由 CMake 管理，你可以将其作为子工程添加 (见下方替代方法)
+add_custom_target(run_coasm_infra_generator
+    COMMAND ${PYTHON_EXECUTABLE} ${COASM_INFRA_ROOT}/scripts/coasm_gen.py -i ${COASM_INFRA_ROOT}/coasm_isa.md -o ${COASM_INFRA_GENERATED_DIR} --antlr
+    WORKING_DIRECTORY ${COASM_INFRA_ROOT}
+    COMMENT "Ensuring coasm_infra artifacts (coasm.g4, ANTLR C++) are generated..."
+    BYPRODUCTS ${COASM_GRAMMAR_FILE} ${COASM_INFRA_ANTLR_GENERATED_DIR}/*.h ${COASM_INFRA_ANTLR_GENERATED_DIR}/*.cpp
+    # DEPENDS ${COASM_INFRA_ROOT}/coasm_isa.md ${COASM_INFRA_ROOT}/scripts/coasm_gen.py # 如果有源文件依赖
+)
+
+# 创建一个自定义目标来封装 COASM ANTLR 生成
+add_custom_target(antlr_gen_coasm DEPENDS ${ANTLR_COASM_OUTPUT_FILES})
+
+
+# --- 定义 ANTLR 生成 PTX 解析器 (保持不变或根据需要调整) ---
 set(ANTLR_PTX_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/antlr_generated_ptx)
 file(MAKE_DIRECTORY ${ANTLR_PTX_GENERATED_DIR})
 
-set(GRAMMAR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/grammar)
-set(PTX_LEXER_FILE ${GRAMMAR_DIR}/ptxLexer.g4)
-set(PTX_PARSER_FILE ${GRAMMAR_DIR}/ptxParser.g4)
+set(PTX_GRAMMAR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/grammar)
+set(PTX_LEXER_FILE ${PTX_GRAMMAR_DIR}/ptxLexer.g4)
+set(PTX_PARSER_FILE ${PTX_GRAMMAR_DIR}/ptxParser.g4)
 
 # ANTLR 生成的文件列表
 set(ANTLR_PTX_OUTPUT_FILES
@@ -58,64 +98,34 @@ add_custom_command(
 add_custom_target(antlr_gen_ptx DEPENDS ${ANTLR_PTX_OUTPUT_FILES})
 
 
-# --- 定义 ANTLR 生成 COASM 解析器 ---
-set(ANTLR_COASM_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/antlr_generated_coasm)
-file(MAKE_DIRECTORY ${ANTLR_COASM_GENERATED_DIR})
-
-set(COASM_GRAMMAR_FILE ${GRAMMAR_DIR}/coasm.g4) # <--- 新增
-
-# 检查 coasm.g4 是否存在
-if(NOT EXISTS ${COASM_GRAMMAR_FILE})
-    message(FATAL_ERROR "COASM grammar file not found at ${COASM_GRAMMAR_FILE}. Please place coasm.g4 in the src directory.")
-endif()
-
-set(ANTLR_COASM_OUTPUT_FILES
-    ${ANTLR_COASM_GENERATED_DIR}/coasmLexer.cpp
-    ${ANTLR_COASM_GENERATED_DIR}/coasmLexer.h
-    ${ANTLR_COASM_GENERATED_DIR}/coasmParser.cpp
-    ${ANTLR_COASM_GENERATED_DIR}/coasmParser.h
-    # 注意：coasm.g4 是一个 combined grammar，所以只生成 Parser 和 Lexer
-    # 如果你拆分成 coasmLexer.g4 和 coasmParser.g4，则需要调整这里
-)
-
-# 添加自定义命令来运行 ANTLR 生成 coasm 解析器
-add_custom_command(
-    OUTPUT ${ANTLR_COASM_OUTPUT_FILES}
-    COMMAND ${Java_JAVA_EXECUTABLE} -jar ${ANTLR_JAR}
-        -Dlanguage=Cpp
-        -visitor # 如果你需要 Visitor 模式来序列化 coasm AST
-        -no-listener # 如果你不需要 Listener 模式
-        -o ${ANTLR_COASM_GENERATED_DIR}
-        ${COASM_GRAMMAR_FILE} # <--- 使用 coasm.g4
-    DEPENDS ${COASM_GRAMMAR_FILE}
-    COMMENT "Generating ANTLR C++ files for COASM..."
-    VERBATIM
-)
-
-# 创建一个自定义目标来封装 COASM ANTLR 生成
-add_custom_target(antlr_gen_coasm DEPENDS ${ANTLR_COASM_OUTPUT_FILES})
-
+file(GLOB COASM_INFRA_CPP_FILES "${COASM_INFRA_ANTLR_GENERATED_DIR}/*.cpp")
 # --- 项目源文件 ---
 set(SOURCES
     src/main.cpp
     src/PtxTranslator.cpp
     ${ANTLR_PTX_OUTPUT_FILES}   # 包含 PTX ANTLR 生成的文件
     ${ANTLR_COASM_OUTPUT_FILES} # 包含 COASM ANTLR 生成的文件 # <--- 新增
+    # --- 添加 COASM ANTLR 生成的文件 ---
+    # 注意：我们不直接列出所有 .cpp 文件，而是将整个目录添加到包含路径
+    # 如果需要直接编译 coasm infra 的 .cpp，可以这样做（但通常不推荐，见下文）：
+    ${COASM_INFRA_CPP_FILES} # 不推荐直接包含生成的 .cpp
 )
 
 # --- 创建可执行文件 ---
 add_executable(ptxasm ${SOURCES})
 
-# 确保在编译 ptxasm 之前先运行 ANTLR 生成
-# 现在需要同时依赖 PTX 和 COASM 的生成
-add_dependencies(ptxasm antlr_gen_ptx antlr_gen_coasm) # <--- 更新依赖
+# --- 确保依赖 ---
+# 确保在构建 ptxasm 之前运行 coasm_infra 生成器
+add_dependencies(ptxasm run_coasm_infra_generator)
+# 确保在构建 ptxasm 之前先运行 PTX ANTLR 生成
+add_dependencies(ptxasm antlr_gen_ptx)
 
 # --- 设置包含目录 ---
 target_include_directories(ptxasm PRIVATE
     ${ANTLR_PTX_GENERATED_DIR}   # 包含 PTX ANTLR 生成的头文件
-    ${ANTLR_COASM_GENERATED_DIR} # 包含 COASM ANTLR 生成的头文件 # <--- 新增
+    # --- 包含 COASM ANTLR 生成的头文件目录 ---
+    ${COASM_INFRA_ANTLR_GENERATED_DIR} # 包含 coasm infra 生成的 ANTLR 头文件
     ${PTX_GRAMMAR_DIR}     # 包含原始 .g4 文件目录 (如果需要)
-    ${COASM_GRAMMAR_DIR}         # 包含原始 .g4 文件目录 (如果需要) # <--- 新增
     ${ANTLR_RUNTIME_DIR}   # ANTLR 运行时库路径
 )
 
