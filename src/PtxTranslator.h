@@ -36,6 +36,7 @@ private:
 
     // --- Translation State ---
     std::string currentKernelName;
+    size_t currentParamOffset = 0; // Tracks the cumulative offset for parameters
     std::map<std::string, int> ptxRegCounts;
     std::map<std::string, int> ptxMaxRegNumbers;
     std::unordered_set<int> usedVRegsByVd; // Track individual %v# regs used by %vd allocations
@@ -46,7 +47,6 @@ private:
     std::unordered_map<std::string, std::string> ptxSharedToCoasmReg;
     std::unordered_set<std::string> usedSpecialRegs;
 
-    bool earlyExitTriggered = false; // Flag for early exit on ret;
 
     struct KernelMetadata {
         std::string name;

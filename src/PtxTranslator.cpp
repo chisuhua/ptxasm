@@ -256,6 +256,7 @@ antlrcpp::Any PtxTranslator::visitKernel(ptxParser::KernelContext *context) {
     currentKernelName = context->ID()->getText();
     currentKernelMetadata = std::make_unique<KernelMetadata>();
     currentKernelMetadata->name = currentKernelName;
+    currentParamOffset = 0; 
     ptxParamToCoasmReg.clear();
     ptxSharedToCoasmReg.clear();
     usedSpecialRegs.clear();
@@ -298,8 +299,61 @@ antlrcpp::Any PtxTranslator::visitParam(ptxParser::ParamContext *context) {
         std::map<std::string, std::string> argInfo;
         argInfo[".address_space"] = "global";
         argInfo[".name"] = ptxParamName;
-        argInfo[".offset"] = "0";
-        argInfo[".size"] = "8";
+        // Parse qualifiers of the param itself to determine size
+        // This is tricky from ParamContext. Need to look at how qualifier is accessed.
+        // Assuming `param : PARAM (ALIGN DIGITS)? qualifier ID (LeftBracket DIGITS RightBracket)?`
+        // context->qualifier() should give the type qualifier
+        std::string sizeStr = "8"; // Default/placeholder size
+        bool sizeFound = false;
+        auto qual = context->qualifier();
+        if (qual && qual->getStart()) {
+            std::string qualText = qual->getStart()->getText();
+            std::transform(qualText.begin(), qualText.end(), qualText.begin(), ::tolower);
+            if (!qualText.empty() && qualText[0] == '.') qualText = qualText.substr(1);
+
+            int baseSize = 4;
+            // List common type qualifiers and their sizes
+            if (qualText == "u64" || qualText == "s64" || qualText == "b64" || qualText == "f64") {
+                baseSize = 8;
+            } else if (qualText == "u32" || qualText == "s32" || qualText == "b32" || qualText == "f32") {
+                baseSize = 4;
+            } else if (qualText == "u16" || qualText == "s16" || qualText == "b16" || qualText == "f16") {
+                baseSize = 2;
+            } else if (qualText == "u8" || qualText == "s8" || qualText == "b8") {
+                baseSize = 1;
+            } else if (qualText == "pred" || qualText == "b1") {
+                baseSize = 1;
+                sizeFound = true;
+            }
+            // Check for array size [DIGITS]
+            auto arrayDimCtx = context->array_dimension();  // 注意：这是 rule 名
+            if (arrayDimCtx != nullptr) {
+                try {
+                    int arraySize = std::stoi(arrayDimCtx->DIGITS()->getText());
+                    sizeStr = std::to_string(baseSize * arraySize);
+                } catch (...) {
+                    // Keep sizeStr as "4" if array size parsing fails
+                }
+            } else {
+                sizeStr = std::to_string(baseSize);
+            }
+            // Add more types as needed (e.g., .v2, .v4)
+        }
+        if (!sizeFound) {
+            // Fallback or warning
+            std::cerr << "Warning: Could not determine size for param " << ptxParamName << ", defaulting to 8.\n";
+        }
+        argInfo[".size"] = sizeStr;
+        
+        argInfo[".offset"] = std::to_string(currentParamOffset);
+        // Advance the offset for the next parameter
+        try {
+            currentParamOffset += std::stoull(sizeStr);
+        } catch (const std::exception& e) {
+            std::cerr << "Warning: Could not parse size '" << sizeStr << "' for param " << ptxParamName << " to update offset: " << e.what() << std::endl;
+            // Fallback: assume size 8
+            currentParamOffset += 8;
+        }
         argInfo[".value_kind"] = "global_buffer";
         currentKernelMetadata->args.push_back(argInfo);
     }

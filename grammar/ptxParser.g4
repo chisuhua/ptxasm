@@ -88,12 +88,15 @@ qualifier : U64
           | SAT
           ;
 
+
+
 params : param COMMA params
        | param 
        ;
 
-param : PARAM (ALIGN DIGITS)? qualifier ID (LeftBracket DIGITS RightBracket)?
-      ;
+param : PARAM (ALIGN DIGITS)? qualifier ID (arrayDim=array_dimension)? ;
+
+array_dimension : LeftBracket DIGITS RightBracket ;
 
 compoundStatement : LeftBrace statements? RightBrace 
                   ;
