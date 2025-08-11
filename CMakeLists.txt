@@ -3,6 +3,8 @@ project(ptxasm)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_INSTALL_PREFIX "" CACHE PATH "")
+set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib")
 
 # --- 配置 ANTLR ---
 # 设置 ANTLR 可执行文件路径 (需要根据你的安装情况修改)
@@ -18,45 +20,56 @@ endif()
 find_package(Java REQUIRED)
 include(UseJava)
 
-# --- 定位 coasm_infra 项目和其生成的文件 ---
-# 1. 设置 coasm_infra 项目根目录路径 (相对于当前 CMakeLists.txt)
-#    你可以通过 CMake 选项、环境变量或硬编码来设置
-option(COASM_INFRA_ROOT "Path to the coasm_infra project root directory" "")
-if(NOT COASM_INFRA_ROOT)
+option(OPUTOOL_BUILD "Path to the opuarch project root directory" "")
+if(NOT OPUTOOL_BUILD)
     # 尝试从环境变量获取
-    set(COASM_INFRA_ROOT $ENV{COASM_INFRA_ROOT})
+    set(OPUTOOL_BUILD $ENV{OPUTOOL_BUILD})
 endif()
-if(NOT COASM_INFRA_ROOT)
-    # 默认相对路径 (假设 coasm_infra 和 ptxasm 在同一级目录下)
-    set(COASM_INFRA_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../coasm_infra")
+if(NOT OPUTOOL_BUILD)
+    # 默认相对路径 (假设 opuarch 和 ptxasm 在同一级目录下)
+    set(OPUTOOL_BUILD "${CMAKE_CURRENT_SOURCE_DIR}/../build")
+endif()
+
+
+# --- 定位 opuarch 项目和其生成的文件 ---
+# 1. 设置 opuarch 项目根目录路径 (相对于当前 CMakeLists.txt)
+#    你可以通过 CMake 选项、环境变量或硬编码来设置
+option(OPUARCH_ROOT "Path to the opuarch project root directory" "")
+if(NOT OPUARCH_ROOT)
+    # 尝试从环境变量获取
+    set(OPUARCH_ROOT $ENV{OPUARCH_ROOT})
+endif()
+if(NOT OPUARCH_ROOT)
+    # 默认相对路径 (假设 opuarch 和 ptxasm 在同一级目录下)
+    set(OPUARCH_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../opuarch")
 endif()
 
 # 规范化路径并验证
-get_filename_component(COASM_INFRA_ROOT "${COASM_INFRA_ROOT}" ABSOLUTE)
-if(NOT EXISTS "${COASM_INFRA_ROOT}/coasm_isa.md")
-    message(FATAL_ERROR "coasm_infra directory '${COASM_INFRA_ROOT}' not found or invalid. Please set COASM_INFRA_ROOT correctly.")
+get_filename_component(OPUARCH_ROOT "${OPUARCH_ROOT}" ABSOLUTE)
+if(NOT EXISTS "${OPUARCH_ROOT}/coasm_isa.md")
+    message(FATAL_ERROR "opuarch directory '${OPUARCH_ROOT}' not found or invalid. Please set OPUARCH_ROOT correctly.")
 endif()
-message(STATUS "Found coasm_infra at: ${COASM_INFRA_ROOT}")
+message(STATUS "Found opuarch at: ${OPUARCH_ROOT}")
 
-# 2. 定义 coasm_infra 生成文件的路径
-set(COASM_INFRA_GENERATED_DIR "${COASM_INFRA_ROOT}/generated")
-set(COASM_GRAMMAR_FILE "${COASM_INFRA_GENERATED_DIR}/coasm.g4")
-set(COASM_INFRA_ANTLR_GENERATED_DIR "${COASM_INFRA_GENERATED_DIR}/antlr_generated")
+# 2. 定义 opuarch 生成文件的路径
+set(OPUARCH_GENERATED_DIR "${OPUARCH_ROOT}/generated")
+set(COASM_GRAMMAR_FILE "${OPUARCH_GENERATED_DIR}/coasm.g4")
+set(OPUARCH_ANTLR_GENERATED_DIR "${OPUARCH_GENERATED_DIR}/antlr_generated")
 
-# 3. (可选但推荐) 确保 coasm_infra 的生成步骤被执行
-#    创建一个自定义目标来运行 coasm_infra 的生成器脚本
-#    这假设 coasm_infra 的 DSL 文件是固定的，或者你有一个机制来触发重新生成
-#    如果 coasm_infra 本身由 CMake 管理，你可以将其作为子工程添加 (见下方替代方法)
-add_custom_target(run_coasm_infra_generator
-    COMMAND ${PYTHON_EXECUTABLE} ${COASM_INFRA_ROOT}/scripts/coasm_gen.py -i ${COASM_INFRA_ROOT}/coasm_isa.md -o ${COASM_INFRA_GENERATED_DIR} --antlr
-    WORKING_DIRECTORY ${COASM_INFRA_ROOT}
-    COMMENT "Ensuring coasm_infra artifacts (coasm.g4, ANTLR C++) are generated..."
-    BYPRODUCTS ${COASM_GRAMMAR_FILE} ${COASM_INFRA_ANTLR_GENERATED_DIR}/*.h ${COASM_INFRA_ANTLR_GENERATED_DIR}/*.cpp
-    # DEPENDS ${COASM_INFRA_ROOT}/coasm_isa.md ${COASM_INFRA_ROOT}/scripts/coasm_gen.py # 如果有源文件依赖
+# 3. (可选但推荐) 确保 opuarch 的生成步骤被执行
+#    创建一个自定义目标来运行 opuarch 的生成器脚本
+#    这假设 opuarch 的 DSL 文件是固定的，或者你有一个机制来触发重新生成
+#    如果 opuarch 本身由 CMake 管理，你可以将其作为子工程添加 (见下方替代方法)
+add_custom_target(run_opuarch_generator
+    COMMAND ${PYTHON_EXECUTABLE} ${OPUARCH_ROOT}/scripts/coasm_gen.py -i ${OPUARCH_ROOT}/coasm_isa.md -o ${OPUARCH_GENERATED_DIR} --antlr
+    WORKING_DIRECTORY ${OPUARCH_ROOT}
+    COMMENT "Ensuring opuarch artifacts (coasm.g4, ANTLR C++) are generated..."
+    BYPRODUCTS ${COASM_GRAMMAR_FILE} ${OPUARCH_ANTLR_GENERATED_DIR}/*.h ${OPUARCH_ANTLR_GENERATED_DIR}/*.cpp
+    # DEPENDS ${OPUARCH_ROOT}/coasm_isa.md ${OPUARCH_ROOT}/scripts/coasm_gen.py # 如果有源文件依赖
 )
 
 # 创建一个自定义目标来封装 COASM ANTLR 生成
-add_custom_target(antlr_gen_coasm DEPENDS ${ANTLR_COASM_OUTPUT_FILES})
+#add_custom_target(antlr_gen_coasm DEPENDS ${ANTLR_COASM_OUTPUT_FILES})
 
 
 # --- 定义 ANTLR 生成 PTX 解析器 (保持不变或根据需要调整) ---
@@ -98,25 +111,25 @@ add_custom_command(
 add_custom_target(antlr_gen_ptx DEPENDS ${ANTLR_PTX_OUTPUT_FILES})
 
 
-file(GLOB COASM_INFRA_CPP_FILES "${COASM_INFRA_ANTLR_GENERATED_DIR}/*.cpp")
+file(GLOB OPUARCH_CPP_FILES "${OPUARCH_ANTLR_GENERATED_DIR}/*.cpp")
 # --- 项目源文件 ---
 set(SOURCES
     src/main.cpp
     src/PtxTranslator.cpp
     ${ANTLR_PTX_OUTPUT_FILES}   # 包含 PTX ANTLR 生成的文件
-    ${ANTLR_COASM_OUTPUT_FILES} # 包含 COASM ANTLR 生成的文件 # <--- 新增
+    #${ANTLR_COASM_OUTPUT_FILES} # 包含 COASM ANTLR 生成的文件 # <--- 新增
     # --- 添加 COASM ANTLR 生成的文件 ---
     # 注意：我们不直接列出所有 .cpp 文件，而是将整个目录添加到包含路径
     # 如果需要直接编译 coasm infra 的 .cpp，可以这样做（但通常不推荐，见下文）：
-    ${COASM_INFRA_CPP_FILES} # 不推荐直接包含生成的 .cpp
+    ${OPUARCH_CPP_FILES} # 不推荐直接包含生成的 .cpp
 )
 
 # --- 创建可执行文件 ---
 add_executable(ptxasm ${SOURCES})
 
 # --- 确保依赖 ---
-# 确保在构建 ptxasm 之前运行 coasm_infra 生成器
-add_dependencies(ptxasm run_coasm_infra_generator)
+# 确保在构建 ptxasm 之前运行 opuarch 生成器
+add_dependencies(ptxasm run_opuarch_generator)
 # 确保在构建 ptxasm 之前先运行 PTX ANTLR 生成
 add_dependencies(ptxasm antlr_gen_ptx)
 
@@ -124,7 +137,7 @@ add_dependencies(ptxasm antlr_gen_ptx)
 target_include_directories(ptxasm PRIVATE
     ${ANTLR_PTX_GENERATED_DIR}   # 包含 PTX ANTLR 生成的头文件
     # --- 包含 COASM ANTLR 生成的头文件目录 ---
-    ${COASM_INFRA_ANTLR_GENERATED_DIR} # 包含 coasm infra 生成的 ANTLR 头文件
+    ${OPUARCH_ANTLR_GENERATED_DIR} # 包含 coasm infra 生成的 ANTLR 头文件
     ${PTX_GRAMMAR_DIR}     # 包含原始 .g4 文件目录 (如果需要)
     ${ANTLR_RUNTIME_DIR}   # ANTLR 运行时库路径
 )
@@ -147,7 +160,7 @@ target_include_directories(ptxasm PRIVATE
 
 # --- 替换为适合你环境的链接方式 ---
 # 这里使用一个常见的假设路径和名称，你需要根据实际情况修改
-target_link_directories(ptxasm PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../build/antlr4/usr/local/lib)
+target_link_directories(ptxasm PRIVATE ${OPUTOOL_BUILD}/lib)
 target_link_libraries(ptxasm antlr4-runtime)
 
 # --- 安装 (可选) ---

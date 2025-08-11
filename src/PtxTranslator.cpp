@@ -166,7 +166,7 @@ void PtxTranslator::initializeCoasmRegAllocation() {
     // Reset allocation state for the current kernel
     ptxToCoasmRegMap.clear();
     usedVRegsByVd.clear(); // Clear the set of vregs used by %vd
-    nextCoasmVReg = 0;     // Start allocating %v from 0
+    nextCoasmVReg = 1;     // Start allocating %v from 0
     nextCoasmVdReg = 0;    // Start allocating %vd from 0 (even)
     // std::cout << "Debug: Initialized COASM register allocation for kernel '" << currentKernelName << "'." << std::endl;
     // std::cout << "       nextCoasmVReg: " << nextCoasmVReg << std::endl;
@@ -202,11 +202,13 @@ std::string PtxTranslator::allocateCoasmRegForPtx(const std::string& ptxRegName)
         // 3a. Map %r or %f to %v#
         // Find the next available %v# that is NOT used by a %vd#
         while (usedVRegsByVd.find(nextCoasmVReg) != usedVRegsByVd.end()) {
-            nextCoasmVReg++;
+            nextCoasmVReg ++; // Ensure odd numbers for %v
         }
         int coasmVNum = nextCoasmVReg;
-        nextCoasmVReg++; // Advance for next allocation
+        usedVRegsByVd.insert(coasmVNum);       // Mark %vN as used
         coasmRegName = "%v" + std::to_string(coasmVNum);
+
+        nextCoasmVReg++; // Advance for next allocation
      } else if (ptxTypePrefix == "rd") {
         // 3b. Map %rd to %vd# (even number)
         // Find the next available even %vd# such that %vdN and %vd(N+1) are not used by other %vd allocations
@@ -216,13 +218,13 @@ std::string PtxTranslator::allocateCoasmRegForPtx(const std::string& ptxRegName)
             nextCoasmVdReg += 2; // Increment by 2 to ensure even numbers and check pairs
         }
         int coasmVdNum = nextCoasmVdReg;
-        nextCoasmVdReg += 2; // Advance by 2 for next %vd allocation
 
         // 4. Record the %v# registers used by this %vd#
         usedVRegsByVd.insert(coasmVdNum);       // Mark %vN as used
         usedVRegsByVd.insert(coasmVdNum + 1);   // Mark %v(N+1) as used
-
         coasmRegName = "%vd" + std::to_string(coasmVdNum);
+
+        nextCoasmVdReg += 2; // Advance by 2 for next %vd allocation
     } else {
         // 5. Handle %p or other types, or return original
         if (ptxTypePrefix == "p") {
@@ -236,7 +238,7 @@ std::string PtxTranslator::allocateCoasmRegForPtx(const std::string& ptxRegName)
 
     // 6. Store the mapping
     ptxToCoasmRegMap[ptxRegName] = coasmRegName;
-    // std::cout << "Debug: Allocated COASM reg " << coasmRegName << " for PTX reg " << ptxRegName << std::endl;
+    std::cout << "Debug: Allocated COASM reg " << coasmRegName << " for PTX reg " << ptxRegName << std::endl;
     return coasmRegName;
 }
 // --- Visitor Implementations ---
