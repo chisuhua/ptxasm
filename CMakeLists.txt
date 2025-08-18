@@ -7,12 +7,14 @@ set(CMAKE_INSTALL_PREFIX "" CACHE PATH "")
 set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib")
 
 # --- 配置 ANTLR ---
-# 设置 ANTLR 可执行文件路径 (需要根据你的安装情况修改)
-set(ANTLR_JAR ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/antlr4/antlr-4.13.2-complete.jar)
-set(ANTLR_RUNTIME_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/antlr4/runtime/src)
+set(ANTLR_JAR $ENV{ANTLR_JAR})
+set(ANTLR_RUNTIME_DIR $ENV{ANTLR_RUNTIME_DIR})
 
-# 检查 ANTLR 是否存在
 if(NOT EXISTS ${ANTLR_JAR})
+    message(FATAL_ERROR "ANTLR executable not found at ${ANTLR_JAR}. Please set the correct path in CMakeLists.txt.")
+endif()
+
+if(NOT EXISTS ${ANTLR_RUNTIME_DIR})
     message(FATAL_ERROR "ANTLR executable not found at ${ANTLR_JAR}. Please set the correct path in CMakeLists.txt.")
 endif()
 
@@ -20,52 +22,52 @@ endif()
 find_package(Java REQUIRED)
 include(UseJava)
 
-option(OPUTOOL_BUILD "Path to the opuarch project root directory" "")
+option(OPUTOOL_BUILD "Path to the opuisa project root directory" "")
 if(NOT OPUTOOL_BUILD)
     # 尝试从环境变量获取
     set(OPUTOOL_BUILD $ENV{OPUTOOL_BUILD})
 endif()
 if(NOT OPUTOOL_BUILD)
-    # 默认相对路径 (假设 opuarch 和 ptxasm 在同一级目录下)
+    # 默认相对路径 (假设 opuisa 和 ptxasm 在同一级目录下)
     set(OPUTOOL_BUILD "${CMAKE_CURRENT_SOURCE_DIR}/../build")
 endif()
 
 
-# --- 定位 opuarch 项目和其生成的文件 ---
-# 1. 设置 opuarch 项目根目录路径 (相对于当前 CMakeLists.txt)
+# --- 定位 opuisa 项目和其生成的文件 ---
+# 1. 设置 opuisa 项目根目录路径 (相对于当前 CMakeLists.txt)
 #    你可以通过 CMake 选项、环境变量或硬编码来设置
-option(OPUARCH_ROOT "Path to the opuarch project root directory" "")
-if(NOT OPUARCH_ROOT)
+option(OPUISA_ROOT "Path to the opuisa project root directory" "")
+if(NOT OPUISA_ROOT)
     # 尝试从环境变量获取
-    set(OPUARCH_ROOT $ENV{OPUARCH_ROOT})
+    set(OPUISA_ROOT $ENV{OPUISA_ROOT})
 endif()
-if(NOT OPUARCH_ROOT)
-    # 默认相对路径 (假设 opuarch 和 ptxasm 在同一级目录下)
-    set(OPUARCH_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../opuarch")
+if(NOT OPUISA_ROOT)
+    # 默认相对路径 (假设 opuisa 和 ptxasm 在同一级目录下)
+    set(OPUISA_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../opuisa")
 endif()
 
 # 规范化路径并验证
-get_filename_component(OPUARCH_ROOT "${OPUARCH_ROOT}" ABSOLUTE)
-if(NOT EXISTS "${OPUARCH_ROOT}/coasm_isa.md")
-    message(FATAL_ERROR "opuarch directory '${OPUARCH_ROOT}' not found or invalid. Please set OPUARCH_ROOT correctly.")
+get_filename_component(OPUISA_ROOT "${OPUISA_ROOT}" ABSOLUTE)
+if(NOT EXISTS "${OPUISA_ROOT}/coasm_isa.md")
+    message(FATAL_ERROR "opuisa directory '${OPUISA_ROOT}' not found or invalid. Please set OPUISA_ROOT correctly.")
 endif()
-message(STATUS "Found opuarch at: ${OPUARCH_ROOT}")
+message(STATUS "Found opuisa at: ${OPUISA_ROOT}")
 
-# 2. 定义 opuarch 生成文件的路径
-set(OPUARCH_GENERATED_DIR "${OPUARCH_ROOT}/generated")
-set(COASM_GRAMMAR_FILE "${OPUARCH_GENERATED_DIR}/coasm.g4")
-set(OPUARCH_ANTLR_GENERATED_DIR "${OPUARCH_GENERATED_DIR}/antlr_generated")
+# 2. 定义 opuisa 生成文件的路径
+set(OPUISA_GENERATED_DIR "${OPUISA_ROOT}/generated")
+set(COASM_GRAMMAR_FILE "${OPUISA_GENERATED_DIR}/coasm.g4")
+set(OPUISA_ANTLR_GENERATED_DIR "${OPUISA_GENERATED_DIR}/antlr_generated")
 
-# 3. (可选但推荐) 确保 opuarch 的生成步骤被执行
-#    创建一个自定义目标来运行 opuarch 的生成器脚本
-#    这假设 opuarch 的 DSL 文件是固定的，或者你有一个机制来触发重新生成
-#    如果 opuarch 本身由 CMake 管理，你可以将其作为子工程添加 (见下方替代方法)
-add_custom_target(run_opuarch_generator
-    COMMAND ${PYTHON_EXECUTABLE} ${OPUARCH_ROOT}/scripts/coasm_gen.py -i ${OPUARCH_ROOT}/coasm_isa.md -o ${OPUARCH_GENERATED_DIR} --antlr
-    WORKING_DIRECTORY ${OPUARCH_ROOT}
-    COMMENT "Ensuring opuarch artifacts (coasm.g4, ANTLR C++) are generated..."
-    BYPRODUCTS ${COASM_GRAMMAR_FILE} ${OPUARCH_ANTLR_GENERATED_DIR}/*.h ${OPUARCH_ANTLR_GENERATED_DIR}/*.cpp
-    # DEPENDS ${OPUARCH_ROOT}/coasm_isa.md ${OPUARCH_ROOT}/scripts/coasm_gen.py # 如果有源文件依赖
+# 3. (可选但推荐) 确保 opuisa 的生成步骤被执行
+#    创建一个自定义目标来运行 opuisa 的生成器脚本
+#    这假设 opuisa 的 DSL 文件是固定的，或者你有一个机制来触发重新生成
+#    如果 opuisa 本身由 CMake 管理，你可以将其作为子工程添加 (见下方替代方法)
+add_custom_target(run_opuisa_generator
+    COMMAND ${PYTHON_EXECUTABLE} ${OPUISA_ROOT}/scripts/coasm_gen.py -i ${OPUISA_ROOT}/coasm_isa.md -o ${OPUISA_GENERATED_DIR} --antlr
+    WORKING_DIRECTORY ${OPUISA_ROOT}
+    COMMENT "Ensuring opuisa artifacts (coasm.g4, ANTLR C++) are generated..."
+    BYPRODUCTS ${COASM_GRAMMAR_FILE} ${OPUISA_ANTLR_GENERATED_DIR}/*.h ${OPUISA_ANTLR_GENERATED_DIR}/*.cpp
+    # DEPENDS ${OPUISA_ROOT}/coasm_isa.md ${OPUISA_ROOT}/scripts/coasm_gen.py # 如果有源文件依赖
 )
 
 # 创建一个自定义目标来封装 COASM ANTLR 生成
@@ -111,7 +113,7 @@ add_custom_command(
 add_custom_target(antlr_gen_ptx DEPENDS ${ANTLR_PTX_OUTPUT_FILES})
 
 
-file(GLOB OPUARCH_CPP_FILES "${OPUARCH_ANTLR_GENERATED_DIR}/*.cpp")
+file(GLOB OPUISA_CPP_FILES "${OPUISA_ANTLR_GENERATED_DIR}/*.cpp")
 # --- 项目源文件 ---
 set(SOURCES
     src/main.cpp
@@ -121,15 +123,15 @@ set(SOURCES
     # --- 添加 COASM ANTLR 生成的文件 ---
     # 注意：我们不直接列出所有 .cpp 文件，而是将整个目录添加到包含路径
     # 如果需要直接编译 coasm infra 的 .cpp，可以这样做（但通常不推荐，见下文）：
-    ${OPUARCH_CPP_FILES} # 不推荐直接包含生成的 .cpp
+    ${OPUISA_CPP_FILES} # 不推荐直接包含生成的 .cpp
 )
 
 # --- 创建可执行文件 ---
 add_executable(ptxasm ${SOURCES})
 
 # --- 确保依赖 ---
-# 确保在构建 ptxasm 之前运行 opuarch 生成器
-add_dependencies(ptxasm run_opuarch_generator)
+# 确保在构建 ptxasm 之前运行 opuisa 生成器
+add_dependencies(ptxasm run_opuisa_generator)
 # 确保在构建 ptxasm 之前先运行 PTX ANTLR 生成
 add_dependencies(ptxasm antlr_gen_ptx)
 
@@ -137,7 +139,7 @@ add_dependencies(ptxasm antlr_gen_ptx)
 target_include_directories(ptxasm PRIVATE
     ${ANTLR_PTX_GENERATED_DIR}   # 包含 PTX ANTLR 生成的头文件
     # --- 包含 COASM ANTLR 生成的头文件目录 ---
-    ${OPUARCH_ANTLR_GENERATED_DIR} # 包含 coasm infra 生成的 ANTLR 头文件
+    ${OPUISA_ANTLR_GENERATED_DIR} # 包含 coasm infra 生成的 ANTLR 头文件
     ${PTX_GRAMMAR_DIR}     # 包含原始 .g4 文件目录 (如果需要)
     ${ANTLR_RUNTIME_DIR}   # ANTLR 运行时库路径
 )
